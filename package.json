@@ -1,0 +1,29 @@
+{
+  "name": "ear-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop client for EAR",
+  "main": "dist/main/main.js",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json",
+    "build": "tsc -p tsconfig.main.json && vite build"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.11",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "19.3.0",
+    "electron": "45.5.0",
+    "typescript": "5.9.3",
+    "vite": "8.4.0"
+  }
+}
