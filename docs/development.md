@@ -22,6 +22,18 @@
 3. **MCP 配置**：复用上游 `stdio` 入口，给 Codex 和 Claude Code 提供配置示例与连接验收。以同一云端账号的授权为基准。
 4. **发布准备**：选定打包工具，在 macOS 和 Windows 的构建环境中分别产出安装包，验证应用签名、首次启动和升级。MCP 若随 App 发行，按平台打包可执行文件，检查它在干净机器上无需预装 Python 即可启动。
 
+## Apple Silicon 本机预览包
+
+在 Apple Silicon Mac 上安装依赖后，运行：
+
+```sh
+npm run package:mac-preview -- /path/to/output
+```
+
+解压生成的 `EAR-Desktop-Preview-arm64.zip`，把 `EAR Desktop Preview.app` 拖到「应用程序」并打开。用由 43 个小写字母 `s` 组成的合成令牌登录。预览版随应用启动本机 HTTPS 服务，使用独立的应用名称、标识和数据目录。证书在运行时生成，仅在预览进程内受信任；测试服务只监听 `127.0.0.1:18877`。退出应用会停止服务。
+
+该包用于本机预览，使用临时签名。对外发行需单独完成 Developer ID 签名、公证和安装升级验收。真实云端连接仍按 [接口与配置](integration.md) 构建。
+
 ## 首版验收
 
 | 范围 | 完成标准 |

@@ -11,12 +11,14 @@
   "scripts": {
     "dev": "npm run build && electron .",
     "start": "electron .",
+    "package:mac-preview": "node scripts/package-macos-preview.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.renderer.json",
     "build": "tsc -p tsconfig.main.json && vite build && node scripts/write-cloud-config.mjs"
   },
   "dependencies": {
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0"
   },
   "devDependencies": {
     "@types/node": "26.6.11",

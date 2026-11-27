@@ -1,6 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { EarBridge, EarPage, EarRecord, Failure, Identity, RecordKind, Result } from '../shared/ear.js'
+import Markdown from 'react-markdown'
+import type { CoverageTrack, DayRange, EarBridge, EarPage, EarRecord, Failure, Identity, RecordKind, Result, WeekCoverage } from '../shared/ear.js'
+import { dayRange, localDay, monday } from './calendar.js'
 import './styles.css'
 
 declare global {
@@ -55,7 +57,21 @@ function Summary({ item }: { item: EarRecord }) {
 
   return <article>
     <RecordTime item={item} />
-    <p className="record-text">{item.text}</p>
+    <div className="analysis-markdown">
+      <Markdown
+        skipHtml
+        disallowedElements={['a', 'img']}
+        unwrapDisallowed
+        components={{
+          h1: ({ children }) => <h3>{children}</h3>,
+          h2: ({ children }) => <h4>{children}</h4>,
+          h3: ({ children }) => <h5>{children}</h5>,
+          h4: ({ children }) => <h6>{children}</h6>,
+        }}
+      >
+        {item.text}
+      </Markdown>
+    </div>
     {item.evidenceIds.length > 0 && <details>
       <summary>原始证据（{item.evidenceIds.length}）</summary>
       <ul className="evidence-links">
@@ -71,15 +87,35 @@ function Summary({ item }: { item: EarRecord }) {
   </article>
 }
 
-function Records({ kind, title, empty }: { kind: RecordKind; title: string; empty: string }) {
+const weekday = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' })
+const shortDate = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' })
+const fullDate = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'full' })
+const clock = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+
+function CoverageBar({ track, index, kind }: { track: CoverageTrack; index: number; kind: keyof WeekCoverage }) {
+  const bits = track.days[index]
+  return <span className={'coverage-bar coverage-' + kind} aria-hidden="true" data-state={track.state}>
+    {Array.from(bits.matchAll(/1+/g), run => <span
+      key={run.index}
+      style={{ left: (run.index / bits.length * 100) + '%', width: (run[0].length / bits.length * 100) + '%' }}
+    />)}
+  </span>
+}
+
+function DayFeed({ kind, range, date, refreshCoverage }: {
+  kind: RecordKind
+  range: DayRange
+  date: Date
+  refreshCoverage: () => void
+}) {
   const [page, setPage] = useState<EarPage>({ items: [], nextCursor: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Failure | null>(null)
 
-  async function load(cursor: string | null) {
+  const load = useCallback(async (cursor: string | null) => {
     setLoading(true)
     setError(null)
-    const result = await read(window.ear.records(kind, cursor))
+    const result = await read(window.ear.records(kind, cursor, range))
     if (result.ok) {
       const next = result.value
       setPage(previous => {
@@ -92,27 +128,117 @@ function Records({ kind, title, empty }: { kind: RecordKind; title: string; empt
       setError(result.error)
     }
     setLoading(false)
-  }
+  }, [kind, range])
 
-  useEffect(() => { void load(null) }, [kind])
+  useEffect(() => { void load(null) }, [load])
 
-  return <section className="panel" aria-label={title} aria-busy={loading}>
-    <div className="panel-heading">
-      <h2>{title}</h2>
-      <button type="button" disabled={loading} onClick={() => void load(null)}>刷新</button>
-    </div>
-    {error && <p className="error" role="alert">{message[error]}</p>}
-    {loading && <p className="muted" role="status">正在加载…</p>}
-    {!loading && !error && !page.items.length && <p className="muted">{empty}</p>}
-    <div className="records">
-      {page.items.map(item => kind === 'artifact'
-        ? <Summary key={item.id} item={item} />
-        : <article key={item.id}><RecordTime item={item} /><p className="record-text">{item.text}</p></article>)}
-    </div>
-    {page.nextCursor && <button type="button" disabled={loading} onClick={() => void load(page.nextCursor)}>
+  return <section className="reader" aria-labelledby="reading-date" aria-busy={loading}>
+    <header className="reader-heading">
+      <h2 id="reading-date">{fullDate.format(date)}</h2>
+      <button type="button" disabled={loading} onClick={() => {
+        refreshCoverage()
+        void load(null)
+      }}>刷新</button>
+    </header>
+    {error && <p className="reader-state error" role="alert">{message[error]}</p>}
+    {loading && <p className="reader-state muted" role="status">正在加载…</p>}
+    {!loading && !error && !page.items.length && <p className="reader-state muted">
+      {kind === 'artifact' ? '当天没有可查看的分析笔记。' : '当天没有可查看的录音转写。'}
+    </p>}
+    <ol className="timeline">
+      {page.items.map(item => <li className="timeline-entry" key={item.id}>
+        <div className="timeline-marker">
+          {item.start ? <time dateTime={item.start}>{clock.format(new Date(item.start))}</time> : <span>未记录</span>}
+        </div>
+        <div className="timeline-body">
+          {kind === 'artifact' ? <Summary item={item} /> :
+            <article>
+              <RecordTime item={item} />
+              <p className="record-text">{item.text}</p>
+            </article>}
+        </div>
+      </li>)}
+    </ol>
+    {page.nextCursor && <button className="load-more" type="button" disabled={loading} onClick={() => void load(page.nextCursor)}>
       加载下一页
     </button>}
   </section>
+}
+
+function Timeline() {
+  const [selected, setSelected] = useState(() => localDay(new Date()))
+  const [kind, setKind] = useState<RecordKind>('artifact')
+  const [coverageRevision, setCoverageRevision] = useState(0)
+  const [coverage, setCoverage] = useState<{ week: number; result: Result<WeekCoverage> } | null>(null)
+
+  const week = monday(selected).getTime()
+  const days = useMemo(() => Array.from({ length: 7 }, (_, index) => localDay(new Date(week), index)), [week])
+  const ranges = useMemo(() => days.map(dayRange), [days])
+  const selectedIndex = days.findIndex(day => day.getTime() === selected.getTime())
+  const currentCoverage = coverage?.week === week ? coverage.result : null
+  const tracks = currentCoverage?.ok ? currentCoverage.value : null
+
+  useEffect(() => {
+    let current = true
+    void read(window.ear.weekCoverage(ranges)).then(result => {
+      if (current) setCoverage({ week, result })
+    })
+    return () => { current = false }
+  }, [week, ranges, coverageRevision])
+
+  function shiftWeek(offset: number) {
+    const target = localDay(new Date(week), offset * 7)
+    const today = localDay(new Date())
+    setSelected(monday(today).getTime() === target.getTime() ? today : target)
+  }
+
+  return <div className="workspace">
+    <aside className="week-sidebar" aria-label="按周选日期">
+      <div className="week-header">
+        <h2>日期</h2>
+        <button type="button" onClick={() => setSelected(localDay(new Date()))}>今天</button>
+      </div>
+      <nav className="week-navigation" aria-label="切换周">
+        <button type="button" onClick={() => shiftWeek(-1)}>‹ 上一周</button>
+        <button type="button" onClick={() => shiftWeek(1)}>下一周 ›</button>
+      </nav>
+      <ol className="week-days">
+        {days.map((day, index) => <li key={day.getTime()}>
+          <button className="date-button" type="button" aria-current={index === selectedIndex ? 'date' : undefined}
+            onClick={() => setSelected(day)} aria-label={fullDate.format(day)}
+            aria-describedby={tracks ? 'coverage-' + index : undefined}>
+            <span className="date-label">
+              <span>{shortDate.format(day)}</span><span>{weekday.format(day)}</span>
+            </span>
+            {tracks && <>
+              <CoverageBar track={tracks.timeline} index={index} kind="timeline" />
+              <CoverageBar track={tracks.activity} index={index} kind="activity" />
+              <span className="sr-only" id={'coverage-' + index}>
+                {tracks.timeline.state === 'ready' ? '来源事件' : '来源事件覆盖不完整'}
+                {tracks.timeline.days[index].includes('1') ? '有记录。' : '未显示记录。'}
+                {tracks.activity.state === 'ready' ? '活动' : '活动覆盖不完整'}
+                {tracks.activity.days[index].includes('1') ? '有记录。' : '未显示记录。'}
+              </span>
+            </>}
+          </button>
+        </li>)}
+      </ol>
+      <div className="coverage-legend">
+        {tracks && <><span className="legend-timeline">来源事件</span><span className="legend-activity">活动</span></>}
+        {tracks && (tracks.timeline.state !== 'ready' || tracks.activity.state !== 'ready')
+          && <p>部分覆盖不可查看</p>}
+        {currentCoverage && !currentCoverage.ok && <p role="status">周覆盖暂不可用</p>}
+      </div>
+    </aside>
+    <div className="reader-pane">
+      <div className="view-picker" role="group" aria-label="查看内容">
+        <button type="button" aria-pressed={kind === 'artifact'} onClick={() => setKind('artifact')}>分析笔记</button>
+        <button type="button" aria-pressed={kind === 'transcript_segment'} onClick={() => setKind('transcript_segment')}>录音转写</button>
+      </div>
+      <DayFeed key={selected.getTime() + kind} date={selected} kind={kind} range={ranges[selectedIndex]}
+        refreshCoverage={() => setCoverageRevision(revision => revision + 1)} />
+    </div>
+  </div>
 }
 
 function App() {
@@ -124,6 +250,13 @@ function App() {
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [error, setError] = useState<Failure | null>(null)
   const [connecting, setConnecting] = useState(false)
+
+  useEffect(() => window.ear.onSessionExpired(() => {
+    setToken('')
+    setIdentity(null)
+    setError('unauthorized')
+    setConnecting(false)
+  }), [])
 
   async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -151,9 +284,9 @@ function App() {
     }
   }
 
-  return <main>
+  return <main className={identity ? "application" : "login-page"}>
     <header className="page-heading">
-      <div><h1>EAR Desktop</h1><p className="muted">录音转写与分析</p></div>
+      <div><h1>EAR Desktop</h1>{!identity && <p className="muted">录音转写与分析</p>}</div>
       {identity && <div className="account">
         <span title={identity.subject}>{identity.subject}</span>
         <button type="button" disabled={connecting} onClick={() => void disconnect()}>退出登录</button>
@@ -161,10 +294,7 @@ function App() {
     </header>
     {identity ? <>
       {error && <p className="error" role="alert">{message[error]}</p>}
-      <div className="results">
-        <Records kind="transcript_segment" title="录音转写" empty="当前没有可查看的转写。" />
-        <Records kind="artifact" title="分析结果" empty="当前没有可查看的分析结果。" />
-      </div>
+      <Timeline />
     </> : <section className="panel connection">
       <h2>登录 EAR</h2>
       {configured === null && <p className="muted" role="status">正在检查服务配置…</p>}

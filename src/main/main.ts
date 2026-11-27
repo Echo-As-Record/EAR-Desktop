@@ -31,8 +31,9 @@ function sessionFor(event: IpcMainInvokeEvent): EarSession {
 ipcMain.handle(channels.configured, event => sessionFor(event).origin !== null)
 ipcMain.handle(channels.connect, (event, token: unknown) => sessionFor(event).connect(token))
 ipcMain.handle(channels.disconnect, event => sessionFor(event).disconnect())
-ipcMain.handle(channels.records, (event, kind: unknown, cursor: unknown) =>
-  sessionFor(event).records(kind, cursor))
+ipcMain.handle(channels.records, (event, kind: unknown, cursor: unknown, day: unknown) =>
+  sessionFor(event).records(kind, cursor, day))
+ipcMain.handle(channels.weekCoverage, (event, days: unknown) => sessionFor(event).weekCoverage(days))
 ipcMain.handle(channels.transcript, (event, id: unknown) => sessionFor(event).transcript(id))
 
 function openWindow(): void {
@@ -52,7 +53,9 @@ function openWindow(): void {
   })
 
   const contentsId = window.webContents.id
-  const session = new EarSession(cloudOrigin)
+  const session = new EarSession(cloudOrigin, fetch, () => {
+    if (!window.webContents.isDestroyed()) window.webContents.send(channels.sessionExpired)
+  })
   sessions.set(contentsId, session)
   window.webContents.once('destroyed', () => {
     session.disconnect()
