@@ -1,25 +1,41 @@
 # EAR Desktop
 
-EAR 的 macOS 和 Windows 客户端。EarRecorder 在 iPhone 上录音并上传，云端 EAR 负责识别、入库和生成分析结果。桌面端通过云端 EAR API 展示结果，并提供本地 `ear-mcp` 的配置入口，供 Codex 或 Claude Code 使用。
+EAR 的 macOS 和 Windows 客户端。EarRecorder 在 iPhone 上录音并上传，云端 EAR 负责识别、入库和生成分析结果。桌面端通过云端 EAR API 展示结果。本地 `ear-mcp` 的配置入口计划随桌面端提供，供 Codex 或 Claude Code 使用。
 
-当前仓库包含可运行的桌面工程骨架和技术文档。云端连接、转写与总结列表、MCP 安装和发行安装包在后续切片实现。
+当前版本使用发行时指定的唯一 EAR 云端，用户以普通用户令牌登录后，可在周历选日，沿时间线浏览当天的分析笔记或录音转写，并从笔记打开关联转写。查看[各平台的实现与验收状态](docs/verification.md)。
 
 | 文档 | 内容 |
 |---|---|
 | [系统架构](docs/architecture.md) | 三端职责、进程边界、录音到结果的流程 |
-| [云端接口与 MCP](docs/integration.md) | 已有接口、待确认契约、凭据和兼容策略 |
-| [开发与双平台交付](docs/development.md) | 工程结构、构建步骤、首版范围与验收 |
+| [云端接口与 MCP](docs/integration.md) | 已有接口、待确认契约和凭据处理 |
+| [开发与双平台交付](docs/development.md) | 工程结构、构建步骤和实施顺序 |
+| [联调与验收](docs/verification.md) | 如何复跑合成 HTTPS 联调，以及真实云端与 Windows 的验收清单 |
 
-## 本地运行
+## 从零连接云端 EAR
 
-需要 Node.js 22.12 或更新的受支持版本。首次启动时 Electron 会下载当前平台的运行时。
+1. 准备 Node.js 22.12 或更新的受支持版本。在本仓库根目录运行：
 
-```sh
-npm ci
-npm run typecheck
-npm run dev
-```
+   ```sh
+   npm ci
+   EAR_DESKTOP_API_URL=https://ear.example.org npm run dev
+   ```
 
-`npm run dev` 先编译工程再打开 Electron 窗口。修改源码后重新运行即可。此阶段可在没有云端账号和录音的情况下启动。
+   `npm run dev` 会编译工程并打开 Electron 窗口。首次启动时需要下载当前平台的 Electron 运行时。
+
+2. 将命令中的示例地址替换为团队提供的 HTTPS API 根地址。这个地址在构建时写入应用，窗口只要求提供普通用户令牌。令牌需要有权读取转写与分析产物。关闭窗口后需要重新输入。正式账号登录和数据隔离待云端提供。
+3. 在左侧周历选择已入库的日期，在「录音转写」查看已有逐句转写，在「分析笔记」打开产物的「原始证据」，检查引用是否能展开为相应的转写。云端需事先入库一段录音并生成关联产物。实时处理状态仍待云端接口。
+4. 如果还没有云端实例，可以用[本机合成 HTTPS 服务](docs/verification.md)验证相同的桌面流程。
+
+## 常见连接问题
+
+| 现象 | 检查 |
+|---|---|
+| 提示尚未配置云端 | 请部署方用正确的 `EAR_DESKTOP_API_URL` 重新构建。 |
+| 提示令牌格式错误 | 当前使用 43 位普通用户令牌。 |
+| 令牌无效（401） | 确认令牌来自当前 API 实例，并请部署方检查是否已撤销或失效。 |
+| 此连接需要普通用户令牌或没有读取权限（403） | 使用普通用户令牌，并请部署方核查转写和分析产物的读取授权。管理员令牌也会被桌面端拒绝。 |
+| 提示重定向 | 请部署方检查构建时配置的最终 HTTPS 根地址。客户端拒绝跟随重定向。 |
+| 无法连接 EAR | 检查网络或 VPN、服务是否可达，以及系统是否信任证书、证书是否匹配该域名。当前界面把网络和证书异常显示为同一类连接失败。 |
+| 已连接但列表为空 | 这是一次成功读取，当前可读列表没有对应结果。让部署方检查所用实例、转写入库和分析产物生成情况。 |
 
 相关仓库：[EarRecorder](https://github.com/Echo-As-Record/EarRecorder) · [云端 EAR](https://github.com/Echo-As-Record/Echo-As-Record)。
