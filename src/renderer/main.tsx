@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
 import type { CoverageTrack, DayRange, EarBridge, EarPage, EarRecord, Failure, Identity, RecordKind, Result, WeekCoverage } from '../shared/ear.js'
 import { dayRange, localDay, monday } from './calendar.js'
+import { RecordingPanel } from './recording.js'
 import './styles.css'
 
 declare global {
@@ -241,6 +242,64 @@ function Timeline() {
   </div>
 }
 
+const pageLabels = { summary: '总结', capture: '采集', settings: '设置' } as const
+type Page = keyof typeof pageLabels
+
+const iconPaths = {
+  summary: 'M6 3h9l4 4v14H6z M15 3v5h4 M9 12h7 M9 16h7',
+  capture: 'M4 5h16v14H4z M10 5v14 M13 9h4 M13 13h4',
+  settings: 'M4 7h16 M4 17h16 M8 5v4 M16 15v4',
+  microphone: 'M9 6a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z M5 11v1a7 7 0 0 0 14 0v-1 M12 19v3 M9 22h6',
+  phone: 'M7 3h10v18H7z M11 18h2',
+  archive: 'M4 4h16v4H4z M5 8v12h14V8 M10 12h4',
+  chat: 'M5 17v-5a7 7 0 1 1 7 7H5l-2 2z M9 11h6 M9 14h4',
+  mark: 'M7 9v6 M12 6v12 M17 8v8',
+} as const
+
+function AppIcon({ name }: { name: keyof typeof iconPaths }) {
+  return <svg className="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={iconPaths[name]} /></svg>
+}
+
+function Settings({ configured, identity, connecting, onCapture, onConnect, onDisconnect }: {
+  configured: boolean | null
+  identity: Identity | null
+  connecting: boolean
+  onCapture: () => void
+  onConnect: () => void
+  onDisconnect: () => void
+}) {
+  return <div className="settings-page">
+    <h2 className="page-title">设置</h2>
+    <section className="settings-group" aria-labelledby="capture-settings">
+      <h3 id="capture-settings">采集与权限</h3>
+      <dl className="settings-list">
+        <div><dt>麦克风</dt><dd><span>使用系统默认输入</span>
+          <button type="button" onClick={onCapture}>打开采集</button>
+        </dd></div>
+      </dl>
+    </section>
+    <section className="settings-group" aria-labelledby="cloud-settings">
+      <h3 id="cloud-settings">云端与存储</h3>
+      <dl className="settings-list">
+        <div><dt>EAR 云端</dt><dd>
+          {identity ? <><span>{identity.subject}</span>
+            <button type="button" disabled={connecting} onClick={onDisconnect}>退出登录</button></>
+            : <><span>{configured === null ? '正在检查…' : configured ? '未连接' : '尚未配置'}</span>
+              {configured && <button type="button" onClick={onConnect}>登录</button>}</>}
+        </dd></div>
+        <div><dt>本机录音</dt><dd>macOS 录音保存在本机</dd></div>
+      </dl>
+    </section>
+    <section className="settings-group" aria-labelledby="mcp-settings">
+      <h3 id="mcp-settings">MCP</h3>
+      <dl className="settings-list">
+        <div><dt>Codex</dt><dd>桌面端配置暂未提供</dd></div>
+        <div><dt>Claude Code</dt><dd>桌面端配置暂未提供</dd></div>
+      </dl>
+    </section>
+  </div>
+}
+
 function App() {
   const [configured, setConfigured] = useState<boolean | null>(null)
   useEffect(() => {
@@ -250,11 +309,14 @@ function App() {
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [error, setError] = useState<Failure | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [page, setPage] = useState<Page>('summary')
+  const [recording, setRecording] = useState(false)
 
   useEffect(() => window.ear.onSessionExpired(() => {
     setToken('')
     setIdentity(null)
     setError('unauthorized')
+    setPage('summary')
     setConnecting(false)
   }), [])
 
@@ -284,30 +346,71 @@ function App() {
     }
   }
 
-  return <main className={identity ? "application" : "login-page"}>
-    <header className="page-heading">
-      <div><h1>EAR Desktop</h1>{!identity && <p className="muted">录音转写与分析</p>}</div>
-      {identity && <div className="account">
-        <span title={identity.subject}>{identity.subject}</span>
-        <button type="button" disabled={connecting} onClick={() => void disconnect()}>退出登录</button>
-      </div>}
-    </header>
-    {identity ? <>
-      {error && <p className="error" role="alert">{message[error]}</p>}
-      <Timeline />
-    </> : <section className="panel connection">
-      <h2>登录 EAR</h2>
-      {configured === null && <p className="muted" role="status">正在检查服务配置…</p>}
-      {configured === false && <p className="error" role="alert">{message.unconfigured}</p>}
-      {configured && <form onSubmit={event => void connect(event)}>
-        <label htmlFor="token">普通用户令牌</label>
-        <input id="token" type="password" required autoComplete="off" spellCheck={false}
-          value={token} onChange={event => setToken(event.target.value)} disabled={connecting} />
-        <p className="muted">关闭窗口后需要重新输入令牌。</p>
-        {error && <p className="error" role="alert">{message[error]}</p>}
-        <button className="primary" type="submit" disabled={connecting}>{connecting ? '正在登录…' : '使用令牌登录'}</button>
-      </form>}
-    </section>}
+  return <main className="application">
+    <aside className="app-sidebar">
+      <div className="workspace-name"><span><AppIcon name="mark" /></span>我的记录</div>
+      <nav className="app-navigation" aria-label="主导航">
+        {(Object.keys(pageLabels) as Page[]).map(item => <button key={item} type="button"
+          aria-current={page === item ? 'page' : undefined} onClick={() => setPage(item)}>
+          <AppIcon name={item} />{pageLabels[item]}
+        </button>)}
+      </nav>
+    </aside>
+    <div className="app-main">
+      <header className="page-heading">
+        <h1>{pageLabels[page]}</h1>
+        {recording && <button type="button" className="recording-toggle" onClick={() => setPage('capture')}>录音中</button>}
+      </header>
+      <div className="app-page summary-page" hidden={page !== 'summary'}>
+        {identity ? <Timeline /> : <section className="connection">
+          <h2>登录 EAR</h2>
+          {configured === null && <p className="muted" role="status">正在检查服务配置…</p>}
+          {configured === false && <p className="error" role="alert">{message.unconfigured}</p>}
+          {configured && <form onSubmit={event => void connect(event)}>
+            <label htmlFor="token">普通用户令牌</label>
+            <input id="token" type="password" required autoComplete="off" spellCheck={false}
+              value={token} onChange={event => setToken(event.target.value)} disabled={connecting} />
+            <p className="muted">关闭窗口后需要重新输入令牌。</p>
+            {error && <p className="error" role="alert">{message[error]}</p>}
+            <button className="primary" type="submit" disabled={connecting}>{connecting ? '正在登录…' : '使用令牌登录'}</button>
+          </form>}
+        </section>}
+      </div>
+      <div className="app-page capture-page" hidden={page !== 'capture'}>
+        <section className="sources" aria-labelledby="sources-title">
+          <h2 className="page-title" id="sources-title">数据来源</h2>
+          <section className="source-group" aria-labelledby="local-sources">
+            <h3 id="local-sources">这台设备</h3>
+            <button type="button" className="source-row source-selected" aria-controls="recording-panel"
+              onClick={() => document.getElementById('recording-heading')?.focus()}>
+              <span className="source-name"><span className="source-icon"><AppIcon name="microphone" /></span><span><strong>桌面麦克风</strong><small>录音</small></span></span>
+              {recording && <span className="recording-status">正在录音</span>}
+            </button>
+          </section>
+          <section className="source-group" aria-labelledby="remote-devices">
+            <h3 id="remote-devices">其他设备</h3>
+            <div className="source-row">
+              <span className="source-name"><span className="source-icon"><AppIcon name="phone" /></span><span><strong>EarRecorder</strong><small>手机采集</small></span></span>
+            </div>
+          </section>
+          <section className="source-group" aria-labelledby="cloud-sources">
+            <h3 id="cloud-sources">云端导入</h3>
+            <div className="source-row">
+              <span className="source-name"><span className="source-icon"><AppIcon name="archive" /></span><span><strong>旧 EAR</strong><small>已有录音与转写</small></span></span>
+            </div>
+            <div className="source-row">
+              <span className="source-name"><span className="source-icon"><AppIcon name="chat" /></span><span><strong>LibreChat</strong><small>会话记录</small></span></span>
+            </div>
+          </section>
+        </section>
+        <RecordingPanel visible={page === 'capture'} onRecording={setRecording} />
+      </div>
+      <div className="app-page" hidden={page !== 'settings'}>
+        {identity && error && <p className="settings-error error" role="alert">{message[error]}</p>}
+        <Settings configured={configured} identity={identity} connecting={connecting}
+          onCapture={() => setPage('capture')} onConnect={() => setPage('summary')} onDisconnect={() => void disconnect()} />
+      </div>
+    </div>
   </main>
 }
 

@@ -48,6 +48,7 @@ try {
   for (const [key, value] of Object.entries({
     CFBundleName: appName,
     CFBundleDisplayName: appName,
+    NSMicrophoneUsageDescription: 'EAR Desktop 在您点击开始录音后访问麦克风。',
     CFBundleIdentifier: 'org.echoasrecord.ear-desktop-preview',
     CFBundleShortVersionString: metadata.version,
     CFBundleVersion: metadata.version,

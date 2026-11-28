@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { EarBridge } from '../shared/ear.js'
+import type { RecordingBridge } from '../shared/recording.js'
 
 const ear: EarBridge = {
   configured: () => ipcRenderer.invoke('ear:configured'),
@@ -17,3 +18,12 @@ const ear: EarBridge = {
 }
 
 contextBridge.exposeInMainWorld('ear', ear)
+
+const recording: RecordingBridge = {
+  list: () => ipcRenderer.invoke('recording:list'),
+  start: () => ipcRenderer.invoke('recording:start'),
+  append: samples => ipcRenderer.invoke('recording:append', samples),
+  finish: () => ipcRenderer.invoke('recording:finish'),
+  upload: (id, token) => ipcRenderer.invoke('recording:upload', id, token),
+}
+contextBridge.exposeInMainWorld('earRecording', recording)
